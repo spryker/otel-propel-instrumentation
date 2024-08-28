@@ -6,9 +6,8 @@ use OpenTelemetry\API\Trace\Span;
 use OpenTelemetry\API\Trace\SpanKind;
 use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
-use OpenTelemetry\SemConv\TraceAttributes;
-use Propel\Runtime\Connection\ConnectionInterface;
-use Propel\Runtime\Propel;
+use Propel\Runtime\Connection\StatementInterface;
+use Spryker\Shared\Opentelemetry\Instrumentation\CachedInstrumentation;
 use Throwable;
 use function OpenTelemetry\Instrumentation\hook;
 
@@ -17,80 +16,40 @@ class PropelInstrumentation
     /**
      * @var string
      */
-    protected const START_TIME = 'start_time';
+    protected const SPAN_NAME = 'propel-execute';
 
     /**
      * @var string
      */
-    protected const ATTRIBUTE_DB_NAME = 'db.system';
+    protected const METHOD_NAME = 'execute';
 
     /**
      * @var string
      */
-    protected const ATTRIBUTE_OPERATION = 'db.operation';
-
-    /**
-     * @var string
-     */
-    protected const ATTRIBUTE_DURATION = 'duration';
-
-    /**
-     * @var string
-     */
-    protected const SPAN_NAME_CREATE = 'propel-create';
-
-    /**
-     * @var string
-     */
-    protected const SPAN_NAME_UPDATE = 'propel-update';
-
-    /**
-     * @var string
-     */
-    protected const SPAN_NAME_DELETE = 'propel-delete';
+    protected const ATTRIBUTE_QUERY = 'query';
 
     /**
      * @return void
      */
     public static function register(): void
     {
-        $operations = [
-            'doInsert' => static::SPAN_NAME_CREATE,
-            'doUpdate' => static::SPAN_NAME_UPDATE,
-            'doDelete' => static::SPAN_NAME_DELETE,
-        ];
-
-        foreach ($operations as $operation => $spanName) {
-            static::registerHook($operation, $spanName);
-        }
-    }
-
-    /**
-     * @param string $functionName
-     * @param string $spanName
-     *
-     * @return void
-     */
-    protected static function registerHook(string $functionName, string $spanName): void
-    {
-        $instrumentation = CachedInstrumentation::getCachedInstrumentation();
-
         hook(
-            class: ConnectionInterface::class,
-            function: $functionName,
-            pre: function (ConnectionInterface $connection, array $params) use ($instrumentation, $spanName): void {
-                $startTime = microtime(true);
+            class: StatementInterface::class,
+            function: static::METHOD_NAME,
+            pre: function (StatementInterface $statement, array $params): void {
+                $context = Context::getCurrent();
 
-                $span = $instrumentation->tracer()
-                    ->spanBuilder($spanName)
+                $span = CachedInstrumentation::getCachedInstrumentation()
+                    ->tracer()
+                    ->spanBuilder(static::SPAN_NAME)
+                    ->setParent($context)
                     ->setSpanKind(SpanKind::KIND_CLIENT)
-                    ->setAttribute(static::START_TIME, $startTime)
-                    ->setAttribute(static::ATTRIBUTE_DB_NAME, $connection->getConfiguration()->getConnectionName())
-                    ->setAttribute(static::ATTRIBUTE_OPERATION, $functionName);
+                    ->setAttribute(static::ATTRIBUTE_QUERY, $statement->getStatement()->queryString)
+                    ->startSpan();
 
-                $span->startSpan()->activate();
+                Context::storage()->attach($span->storeInContext(Context::getCurrent()));
             },
-            post: function ($instance, array $params, $response, ?Throwable $exception): void {
+            post: function (StatementInterface $statement, array $params, $response, ?Throwable $exception): void {
                 $span = Span::fromContext(Context::getCurrent());
 
                 if ($exception !== null) {
@@ -99,11 +58,6 @@ class PropelInstrumentation
                 } else {
                     $span->setStatus(StatusCode::STATUS_OK);
                 }
-
-                $endTime = microtime(true);
-                $duration = $endTime - $span->getAttribute(static::START_TIME);
-                $span->setAttribute(static::START_TIME, null);
-                $span->setAttribute(static::ATTRIBUTE_DURATION, $duration);
 
                 $span->end();
             }
