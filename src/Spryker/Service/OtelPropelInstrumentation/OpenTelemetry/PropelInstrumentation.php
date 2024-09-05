@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * Copyright © 2016-present Spryker Systems GmbH. All rights reserved.
+ * Use of this software requires acceptance of the Evaluation License Agreement. See LICENSE file.
+ */
+
 namespace Spryker\Service\OtelPropelInstrumentation\OpenTelemetry;
 
 use OpenTelemetry\API\Trace\Span;
@@ -8,6 +13,7 @@ use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
 use Propel\Runtime\Connection\StatementInterface;
 use Spryker\Shared\Opentelemetry\Instrumentation\CachedInstrumentation;
+use Spryker\Zed\Opentelemetry\Business\Generator\SpanFilter\SamplerSpanFilter;
 use Throwable;
 use function OpenTelemetry\Instrumentation\hook;
 
@@ -58,6 +64,8 @@ class PropelInstrumentation
                 } else {
                     $span->setStatus(StatusCode::STATUS_OK);
                 }
+
+                $span = SamplerSpanFilter::filter($span);
 
                 $span->end();
             }
