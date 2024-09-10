@@ -8,6 +8,7 @@ use OpenTelemetry\API\Trace\StatusCode;
 use OpenTelemetry\Context\Context;
 use Propel\Runtime\Connection\StatementInterface;
 use Spryker\Shared\Opentelemetry\Instrumentation\CachedInstrumentation;
+use Spryker\Zed\Opentelemetry\Business\Generator\SpanFilter\SamplerSpanFilter;
 use Throwable;
 use function OpenTelemetry\Instrumentation\hook;
 
@@ -59,6 +60,7 @@ class PropelInstrumentation
                     $span->setStatus(StatusCode::STATUS_OK);
                 }
 
+                $span = SamplerSpanFilter::filter($span);
                 $span->end();
             }
         );
